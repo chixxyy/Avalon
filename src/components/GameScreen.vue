@@ -801,12 +801,24 @@
         </div>
       </div>
     </div>
+
+    <!-- Hidden Remote WebRTC Audio Elements -->
+    <div class="hidden">
+      <audio
+        v-for="(stream, playerId) in remoteStreams"
+        :key="'remote-audio-' + playerId"
+        autoplay
+        playsinline
+        :ref="(el) => { if (el) el.srcObject = stream; }"
+      ></audio>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useGame } from '../composables/useGame';
+import { useWebRTCVoice } from '../composables/useWebRTCVoice';
 
 const { 
   state, 
@@ -823,6 +835,12 @@ const {
   startGame,
   currentRoundQuestSize
 } = useGame();
+
+const {
+  remoteStreams,
+  startVoiceConference,
+  closePeers
+} = useWebRTCVoice(state.roomCode, state.myPlayerId, state.players);
 
 const testPerspectiveId = ref(state.myPlayerId);
 const isRevealed = ref(false);
@@ -882,6 +900,9 @@ watch(() => state.gamePhase, (newPhase) => {
 });
 
 onMounted(() => {
+  // Start WebRTC voice conference
+  startVoiceConference();
+
   // Timer setup
   timerInterval = setInterval(() => {
     if (state.speakingState.active && state.speakingState.direction !== null) {
@@ -908,6 +929,7 @@ onUnmounted(() => {
   if (timerInterval) clearInterval(timerInterval);
   if (animFrame) cancelAnimationFrame(animFrame);
   if (botTimeout) clearTimeout(botTimeout);
+  closePeers();
 });
 
 // Watchers for Speaking Phase to handle Bot automations
