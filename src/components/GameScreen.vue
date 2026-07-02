@@ -724,8 +724,10 @@
                   ]"
                 >
                   <span v-if="activeTestPlayer?.role === 'Merlin'">🧙‍♂️</span>
+                  <span v-else-if="activeTestPlayer?.role === 'Percival'">🔮</span>
                   <span v-else-if="activeTestPlayer?.role === 'Loyalist'">🛡️</span>
                   <span v-else-if="activeTestPlayer?.role === 'Assassin'">🗡️</span>
+                  <span v-else-if="activeTestPlayer?.role === 'Morgana'">🧙‍♀️</span>
                   <span v-else>😈</span>
                 </div>
                 <div>
@@ -758,12 +760,25 @@
             👁️ 信箋揭露機密資訊
           </h3>
 
+          <!-- Percival Info -->
+          <div v-if="activeTestPlayer?.role === 'Percival'" class="p-4 rounded-xl bg-blue-950/20 border border-blue-500/30 space-y-2">
+            <h4 class="text-xs font-bold text-blue-400 flex items-center gap-1 font-serif">
+              🔮 雙星預言名單 (派西維爾視野)
+            </h4>
+            <p class="text-[11px] text-slate-400">你看到了以下兩位玩家（一位是真梅林，另一位是假冒的莫甘娜）：</p>
+            <div class="flex flex-wrap gap-2 pt-1">
+              <span v-for="name in revealedInfo.candidates" :key="name" class="px-2.5 py-1 bg-blue-950/60 border border-blue-500/20 text-blue-300 text-xs font-semibold rounded-lg">
+                ❓ {{ name }}
+              </span>
+            </div>
+          </div>
+
           <!-- Merlin Info -->
-          <div v-if="activeTestPlayer?.role === 'Merlin'" class="p-4 rounded-xl bg-red-950/20 border border-red-500/30 space-y-2">
+          <div v-else-if="activeTestPlayer?.role === 'Merlin'" class="p-4 rounded-xl bg-red-950/20 border border-red-500/30 space-y-2">
             <h4 class="text-xs font-bold text-red-400 flex items-center gap-1 font-serif">
               🔥 邪惡爪牙名單 (梅林天眼)
             </h4>
-            <p class="text-[11px] text-slate-400">以下玩家為邪惡陣營（刺客/爪牙），請小心指引好人走向勝利，切勿暴露身分：</p>
+            <p class="text-[11px] text-slate-400">以下玩家為邪惡陣營（刺客/爪牙/莫甘娜），請小心指引好人走向勝利，切勿暴露身分：</p>
             <div class="flex flex-wrap gap-2 pt-1">
               <span v-for="name in revealedInfo.evilPlayers" :key="name" class="px-2.5 py-1 bg-red-950/60 border border-red-500/20 text-red-300 text-xs font-semibold rounded-lg">
                 💀 {{ name }}

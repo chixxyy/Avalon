@@ -37,9 +37,12 @@
         </h3>
         <p class="text-slate-400">目前人數：<span class="text-amber-400 font-bold font-serif text-sm">{{ state.players.length }}</span> / 10</p>
         <div class="text-[11px] text-slate-500 space-y-1">
-          <p v-if="state.players.length < 5" class="text-amber-500/80">⚠️ 最少需要 5 人才能開始遊戲！</p>
+          <p v-if="state.players.length < 5" class="text-amber-500/80">⚠️ 最少需要 5 人才能開始遊戲！ (目前仍差 {{ 5 - state.players.length }} 人)</p>
           <p v-else class="text-emerald-500 font-semibold">✓ 已達到遊戲人數門檻，可開始分配陣營。</p>
-          <p class="mt-1">陣營分佈試算：{{ currentRoleDistribution }}</p>
+          <div class="mt-2 p-2 bg-slate-950/60 border border-slate-900 rounded-lg">
+            <span class="text-[9px] text-slate-500 block uppercase font-semibold mb-0.5">預計陣營與角色分佈：</span>
+            <p class="text-[11px] text-amber-500/90 leading-relaxed font-serif">{{ currentRoleDistribution }}</p>
+          </div>
         </div>
       </div>
 
@@ -174,8 +177,7 @@ const handleStartGame = () => {
 };
 
 const currentRoleDistribution = computed(() => {
-  const num = state.players.length;
-  if (num < 5) return '（人數不足 5 人，無法計算）';
+  const num = state.players.length < 5 ? 5 : state.players.length;
   
   let good = 3, evil = 2;
   if (num === 6) { good = 4; evil = 2; }
@@ -184,6 +186,12 @@ const currentRoleDistribution = computed(() => {
   else if (num === 9) { good = 6; evil = 3; }
   else if (num === 10) { good = 6; evil = 4; }
   
-  return `好人陣營 ${good} 人（梅林 + 忠臣 x${good-1}） / 邪惡陣營 ${evil} 人（刺客 + 爪牙 x${evil-1}）`;
+  if (num >= 9) {
+    return `正義陣營 ${good} 人 (梅林 + 派西維爾 + 忠臣 x${good-2}) / 邪惡陣營 ${evil} 人 (刺客 + 莫甘娜 + 莫德雷德 + 爪牙 x${evil-3})`;
+  }
+  if (num >= 7) {
+    return `正義陣營 ${good} 人 (梅林 + 派西維爾 + 忠臣 x${good-2}) / 邪惡陣營 ${evil} 人 (刺客 + 莫甘娜 + 爪牙 x${evil-2})`;
+  }
+  return `正義陣營 ${good} 人 (梅林 + 忠臣 x${good-1}) / 邪惡陣營 ${evil} 人 (刺客 + 爪牙 x${evil-1})`;
 });
 </script>

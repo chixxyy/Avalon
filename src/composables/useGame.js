@@ -252,13 +252,37 @@ export function useGame() {
     }
 
     const config = ROLE_CONFIGS[numPlayers];
+    
+    // Base roles setup
     const goodRoles = [{ role: 'Merlin', name: '梅林', alignment: 'good' }];
-    for (let i = 0; i < config.good - 1; i++) {
-      goodRoles.push({ role: 'Loyalist', name: '亞瑟的忠臣', alignment: 'good' });
+    const evilRoles = [{ role: 'Assassin', name: '刺客', alignment: 'evil' }];
+
+    // If 7 players or more, add advanced roles: Percival (好人) & Morgana (壞人)
+    const isAdvancedMode = numPlayers >= 7;
+    
+    let goodToAssign = config.good - 1;
+    let evilToAssign = config.evil - 1;
+
+    if (isAdvancedMode) {
+      goodRoles.push({ role: 'Percival', name: '派西維爾', alignment: 'good' });
+      goodToAssign--;
+      
+      evilRoles.push({ role: 'Morgana', name: '莫甘娜', alignment: 'evil' });
+      evilToAssign--;
     }
 
-    const evilRoles = [{ role: 'Assassin', name: '刺客', alignment: 'evil' }];
-    for (let i = 0; i < config.evil - 1; i++) {
+    // If 9 players or more, add Mordred (who is hidden from Merlin)
+    const isMordredMode = numPlayers >= 9;
+    if (isMordredMode) {
+      evilRoles.push({ role: 'Mordred', name: '莫德雷德', alignment: 'evil' });
+      evilToAssign--;
+    }
+
+    // Fill remaining spots with Loyalists and Minions
+    for (let i = 0; i < goodToAssign; i++) {
+      goodRoles.push({ role: 'Loyalist', name: '亞瑟的忠臣', alignment: 'good' });
+    }
+    for (let i = 0; i < evilToAssign; i++) {
       evilRoles.push({ role: 'Minion', name: '莫德雷德的爪牙', alignment: 'evil' });
     }
 
@@ -492,15 +516,28 @@ export function useGame() {
   const getRevealedInfoForPlayer = (player) => {
     if (!player) return { evilPlayers: [], teammates: [] };
 
+    // Merlin sees all evil EXCEPT Mordred
     const evilPlayers = state.players
-      .filter(p => p.alignment === 'evil')
+      .filter(p => p.alignment === 'evil' && p.role !== 'Mordred')
       .map(p => p.name);
 
     if (player.role === 'Merlin') {
       return {
         role: 'Merlin',
         evilPlayers: evilPlayers,
-        description: '你看到了所有邪惡陣營的爪牙，但不知道他們的具體身份，且你必須保護自己不被刺客認出。',
+        description: '你看到了所有邪惡陣營的爪牙（包含莫甘娜），但莫德雷德對你隱身，你無法看見他。同時你必須保護自己不被刺客認出。',
+      };
+    }
+
+    if (player.role === 'Percival') {
+      // Sees Merlin and Morgana as candidates (cannot distinguish who is who)
+      const candidates = state.players
+        .filter(p => p.role === 'Merlin' || p.role === 'Morgana')
+        .map(p => p.name);
+      return {
+        role: 'Percival',
+        candidates: candidates,
+        description: `你看到了真正的梅林與假冒梅林的邪惡莫甘娜：【${candidates.join('、')}】。你必須設法查明真相，引導好人，同時保護真梅林。`
       };
     }
 
@@ -509,12 +546,21 @@ export function useGame() {
         .filter(p => p.alignment === 'evil' && p.id !== player.id)
         .map(p => p.name);
       
+      let roleDesc = '';
+      if (player.role === 'Assassin') {
+        roleDesc = '你是刺客！在遊戲結束時，若好人任務成功，你可以指認梅林，若指認正確邪惡陣營將逆轉獲勝。';
+      } else if (player.role === 'Morgana') {
+        roleDesc = '你是莫甘娜！你的任務是假冒梅林以迷惑派西維爾的法眼，並配合爪牙阻礙任務。';
+      } else if (player.role === 'Mordred') {
+        roleDesc = '你是莫德雷德！你是邪惡陣營的隱形首領。你的特殊能力是對梅林隱身（梅林無法看見你），請利用此優勢誤導好人！';
+      } else {
+        roleDesc = '你是莫德雷德的爪牙，配合刺客與莫甘娜隱藏身分，並破壞好人的任務！';
+      }
+
       return {
         role: player.role,
         teammates: teammates,
-        description: player.role === 'Assassin' 
-          ? '你是刺客！在遊戲結束時，若好人任務成功，你可以指認梅林，若指認正確邪惡陣營將逆轉獲勝。' 
-          : '你是莫德雷德的爪牙，配合刺客隱藏身分，並破壞好人的任務！',
+        description: roleDesc
       };
     }
 
