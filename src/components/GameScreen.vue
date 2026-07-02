@@ -393,12 +393,12 @@
                 @click="handleToggleMute"
                 class="flex-1 py-2 px-3 border rounded-lg transition-colors cursor-pointer text-xs font-serif flex items-center justify-center gap-1"
                 :class="[
-                  state.speakingState.isMuted
+                  isMuted
                     ? 'bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20'
                     : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300'
                 ]"
               >
-                <span>{{ state.speakingState.isMuted ? '🎤 開啟麥克風' : '🔇 靜音麥克風' }}</span>
+                <span>{{ isMuted ? '🎤 開啟麥克風' : '🔇 靜音麥克風' }}</span>
               </button>
               <div v-else class="flex-1 text-[10px] text-slate-500 italic flex items-center justify-center">
                 🤖 Bot {{ currentSpeaker?.name }} 正在陳述意見... (5秒後自動 Pass)
@@ -854,7 +854,9 @@ const {
 const {
   remoteStreams,
   startVoiceConference,
-  closePeers
+  closePeers,
+  toggleLocalMute,
+  isMuted
 } = useWebRTCVoice(state.roomCode, state.myPlayerId, state.players);
 
 const testPerspectiveId = ref(state.myPlayerId);
@@ -962,7 +964,7 @@ const currentSpeaker = computed(() => {
 const isMutedOrBotSilent = computed(() => {
   if (!state.speakingState.active) return true;
   if (!currentSpeaker.value) return true;
-  return currentSpeaker.value.isBot ? false : state.speakingState.isMuted;
+  return currentSpeaker.value.isBot ? false : isMuted.value;
 });
 
 // Watch for changes in active status to trigger Bot decisions
@@ -1239,7 +1241,7 @@ const handlePass = () => {
 };
 
 const handleToggleMute = () => {
-  toggleMute();
+  toggleLocalMute();
 };
 
 const getWinnerExplanationText = () => {
