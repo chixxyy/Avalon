@@ -407,7 +407,7 @@
                 <span>{{ isMuted ? '🎤 開啟麥克風' : '🔇 靜音麥克風' }}</span>
               </button>
               <div v-else class="flex-1 text-[10px] text-slate-500 italic flex items-center justify-center">
-                🤖 Bot {{ currentSpeaker?.name }} 正在陳述意見... (5秒後自動 Pass)
+                🤖 {{ currentSpeaker?.name }} 正在陳述意見...
               </div>
 
               <!-- Pass -->
@@ -863,7 +863,7 @@ const {
   closePeers,
   toggleLocalMute,
   isMuted
-} = useWebRTCVoice(state.roomCode, state.myPlayerId, state.players);
+} = useWebRTCVoice(state.roomCode, state.myPlayerId);
 
 const testPerspectiveId = ref(state.myPlayerId);
 const isRevealed = ref(false);
