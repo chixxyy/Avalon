@@ -31,6 +31,7 @@ const state = reactive({
   gamePhase: 'proposal', 
   winner: null,         
   assassinatedPlayerId: '', 
+  proposalTimeLeft: 0,
 });
 
 let channel = null;
@@ -114,6 +115,7 @@ export function useGame() {
         state.gamePhase = payload.gamePhase;
         state.winner = payload.winner;
         state.assassinatedPlayerId = payload.assassinatedPlayerId;
+        state.proposalTimeLeft = payload.proposalTimeLeft ?? 0;
         
         // Sync players list safely
         state.players = payload.players;
@@ -395,6 +397,20 @@ export function useGame() {
     broadcastState();
   };
 
+  // Proposal phase countdown — called by host's setInterval every second
+  const tickProposalTimer = () => {
+    if (!isHost.value || state.gamePhase !== 'proposal') return;
+    if (state.proposalTimeLeft > 0) {
+      state.proposalTimeLeft--;
+      broadcastState();
+    }
+  };
+
+  const resetProposalTimer = () => {
+    state.proposalTimeLeft = 15;
+    broadcastState();
+  };
+
   const submitTeamVote = (playerId, vote) => {
     state.votes[playerId] = vote;
 
@@ -588,6 +604,8 @@ export function useGame() {
     passSpeaking,
     toggleMute,
     tickSpeakingTimer,
+    tickProposalTimer,
+    resetProposalTimer,
     proposeTeam,
     submitTeamVote,
     submitQuestVote,

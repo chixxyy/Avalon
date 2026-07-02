@@ -295,9 +295,9 @@
             </button>
 
             <!-- Auto countdown hint for self (leader) -->
-            <div v-if="isPerspectiveLeader && proposalCountdown > 0" class="text-center text-[10px] mt-1">
-              <span :class="proposalCountdown <= 5 ? 'text-red-400 animate-pulse' : 'text-slate-500'">
-                ⏰ 若 {{ proposalCountdown }} 秒內未送出，將自動選擇身邊玩家出征
+            <div v-if="isPerspectiveLeader && state.proposalTimeLeft > 0" class="text-center text-[10px] mt-1">
+              <span :class="state.proposalTimeLeft <= 5 ? 'text-red-400 animate-pulse' : 'text-slate-500'">
+                ⏰ 若 {{ state.proposalTimeLeft }} 秒內未送出，將自動選擇身邊玩家出征
               </span>
             </div>
             
@@ -307,7 +307,7 @@
             
             <div v-else class="text-[10px] text-slate-500 italic mt-2 flex items-center gap-2">
               <span>⏳ 等待領袖選擇出征隊伍...</span>
-              <span v-if="proposalCountdown > 0" :class="proposalCountdown <= 5 ? 'text-red-400 animate-pulse font-bold' : 'text-amber-500/80'">{{ proposalCountdown }}s</span>
+              <span v-if="state.proposalTimeLeft > 0" :class="state.proposalTimeLeft <= 5 ? 'text-red-400 animate-pulse font-bold' : 'text-amber-500/80'">{{ state.proposalTimeLeft }}s</span>
             </div>
           </div>
         </div>
@@ -883,6 +883,8 @@ const {
   passSpeaking,
   toggleMute,
   tickSpeakingTimer,
+  tickProposalTimer,
+  resetProposalTimer,
   proposeTeam,
   submitTeamVote,
   submitQuestVote,
@@ -921,13 +923,11 @@ const switchPerspective = (playerId) => {
 const localProposedIds = ref([]);
 const botDecisionTimer = ref(3);
 const botProposalTimer = ref(4);
-const proposalCountdown = ref(0); // 人類領袖指派倒數計時
 const waveformBars = ref(Array.from({ length: 30 }, () => 15));
 
 let timerInterval = null;
 let animFrame = null;
 let botTimeout = null;
-let proposalCountdownInterval = null;
 
 const viewRoundHistory = (round) => {
   selectedRoundInfo.value = round;
@@ -957,16 +957,15 @@ const revealedInfo = computed(() => {
 watch(() => state.currentRound, () => {
   localProposedIds.value = [];
   triggerBotProposalDecision();
-  startProposalCountdown();
+  resetProposalTimer();
 });
 
 watch(() => state.gamePhase, (newPhase) => {
   if (newPhase === 'proposal') {
     localProposedIds.value = [];
     triggerBotProposalDecision();
-    startProposalCountdown();
+    resetProposalTimer();
   } else {
-    clearProposalCountdown();
     if (newPhase === 'voting') {
       triggerBotProposalVoting();
     } else if (newPhase === 'quest') {
@@ -977,15 +976,36 @@ watch(() => state.gamePhase, (newPhase) => {
   }
 });
 
+// Auto-propose when shared countdown hits 0 (only the leader's device submits)
+watch(() => state.proposalTimeLeft, (val) => {
+  if (val !== 0) return;
+  if (state.gamePhase !== 'proposal') return;
+  const leader = state.players.find(p => p.id === state.leaderId);
+  if (!leader || leader.isBot) return;
+  if (state.leaderId !== state.myPlayerId) return;
+
+  const questSize = currentRoundQuestSize.value;
+  const myId = state.myPlayerId;
+  const others = state.players.filter(p => p.id !== myId);
+  for (let i = others.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [others[i], others[j]] = [others[j], others[i]];
+  }
+  const autoChosen = [myId, ...others.slice(0, questSize - 1).map(p => p.id)];
+  localProposedIds.value = autoChosen;
+  proposeTeam(autoChosen);
+});
+
 onMounted(() => {
   // Start WebRTC voice conference
   startVoiceConference();
 
-  // Timer setup
+  // Timer setup — one interval drives both speaking timer and proposal timer
   timerInterval = setInterval(() => {
     if (state.speakingState.active && state.speakingState.direction !== null) {
       tickSpeakingTimer();
     }
+    tickProposalTimer();
   }, 1000);
 
   // Audio wave animation simulator
@@ -999,15 +1019,15 @@ onMounted(() => {
   };
   animateWaveform();
   
-  // Initial check
+  // Initial check for proposal phase (game always starts in proposal)
   triggerBotProposalDecision();
+  resetProposalTimer();
 });
 
 onUnmounted(() => {
   if (timerInterval) clearInterval(timerInterval);
   if (animFrame) cancelAnimationFrame(animFrame);
   if (botTimeout) clearTimeout(botTimeout);
-  clearProposalCountdown();
   closePeers();
 });
 
@@ -1110,7 +1130,7 @@ const getPlayerNameById = (id) => {
 // Toggle proposed member locally
 const toggleProposedMember = (playerId) => {
   if (!isPerspectiveLeader.value) return;
-  const questSize = useGame().currentRoundQuestSize.value;
+  const questSize = currentRoundQuestSize.value; // use destructured ref, not a new useGame() call
   
   if (localProposedIds.value.includes(playerId)) {
     localProposedIds.value = localProposedIds.value.filter(id => id !== playerId);
@@ -1122,7 +1142,6 @@ const toggleProposedMember = (playerId) => {
 };
 
 const submitProposal = () => {
-  clearProposalCountdown();
   proposeTeam(localProposedIds.value);
 };
 
