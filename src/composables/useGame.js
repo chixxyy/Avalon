@@ -1,48 +1,49 @@
 import { reactive, computed } from 'vue';
+import { supabase } from '../supabase';
+
+// Generate a random local ID for the user
+const localPlayerId = 'player-' + Math.random().toString(36).substring(2, 9);
 
 // Global reactive state
 const state = reactive({
   roomCode: '',
-  myPlayerId: '',
+  myPlayerId: localPlayerId,
   myPlayerName: '',
   players: [],
-  gameState: 'lobby', // 'lobby' | 'waiting' | 'playing'
+  gameState: 'lobby', 
   speakingState: {
     active: false,
-    teamIds: [],      // 參與發言的玩家 ID 列表 (出征成員)
-    currentIndex: 0,  // 當前發言玩家在 teamIds 中的 index
-    direction: null,  // 'cw' (順時針) | 'ccw' (逆時針) | null (未決定)
-    timeLeft: 60,     // 剩餘發言時間 (秒)
-    isMuted: false,   // 本地真實玩家是否麥克風靜音
+    teamIds: [],      
+    currentIndex: 0,  
+    direction: null,  
+    timeLeft: 60,     
+    isMuted: false,   
   },
-  // Full game flow states
-  currentRound: 1,      // 1 to 5
-  leaderId: '',         // Current round leader ID
-  failedProposals: 0,   // Number of failed team proposals in current round (0 to 5)
-  proposedTeam: [],     // Player IDs proposed for the mission
-  votes: {},            // Team proposal votes: { playerId: 'approve' | 'reject' }
-  questVotes: [],       // Secret votes from quest team: Array of 'success' | 'fail'
-  questHistory: [],     // Results of each of the 5 rounds: Array of 'success' | 'fail' (max 5)
-  questTeamsHistory: [], // Proposed team IDs for each round: Array of arrays (e.g. [['player-1', 'bot-1'], ...])
-  roundVotesHistory: {}, // Proposal votes record for each round: { roundNumber: { playerId: 'approve' | 'reject' } }
-  gamePhase: 'proposal', // 'proposal' | 'discussion' | 'voting' | 'quest' | 'assassination' | 'gameover'
-  winner: null,         // 'good' | 'evil' | null
-  assassinatedPlayerId: '', // Assassin's target ID
+  currentRound: 1,      
+  leaderId: '',         
+  failedProposals: 0,   
+  proposedTeam: [],     
+  votes: {},            
+  questVotes: [],       
+  questHistory: [],     
+  questTeamsHistory: [], 
+  roundVotesHistory: {}, 
+  gamePhase: 'proposal', 
+  winner: null,         
+  assassinatedPlayerId: '', 
 });
 
-const BOT_NAMES = [
-  '蘭斯洛特 (Bot)',
-  '加拉哈德 (Bot)',
-  '高文 (Bot)',
-  '崔斯坦 (Bot)',
-  '珀西瓦里 (Bot)',
-  '凱 (Bot)',
-  '貝德維爾 (Bot)',
-  '鮑斯 (Bot)',
-  '杰拉恩特 (Bot)',
-];
+let channel = null;
 
-// Round size config based on player count
+const ROLE_CONFIGS = {
+  5: { good: 3, evil: 2 },
+  6: { good: 4, evil: 2 },
+  7: { good: 4, evil: 3 },
+  8: { good: 5, evil: 3 },
+  9: { good: 6, evil: 3 },
+  10: { good: 6, evil: 4 }
+};
+
 const getQuestSizeForRound = (numPlayers, round) => {
   const mapping = {
     5: [2, 3, 2, 3, 3],
@@ -54,6 +55,17 @@ const getQuestSizeForRound = (numPlayers, round) => {
   };
   const list = mapping[numPlayers] || [2, 3, 2, 3, 3];
   return list[round - 1];
+};
+
+// Helper: Broadcast game state to everyone in room
+const broadcastState = () => {
+  if (channel) {
+    channel.send({
+      type: 'broadcast',
+      event: 'state-change',
+      payload: { ...state }
+    });
+  }
 };
 
 export function useGame() {
@@ -69,43 +81,110 @@ export function useGame() {
     return getQuestSizeForRound(state.players.length, state.currentRound);
   });
 
-  // Check if round 4 requires 2 fail votes (7 players or more)
   const isRound4TwoFailsRequired = computed(() => {
     return state.currentRound === 4 && state.players.length >= 7;
   });
 
-  // Generate a random room code
-  const generateRoomCode = () => {
-    return Math.random().toString(36).substring(2, 8).toUpperCase();
+  // Subscribe to room channel and setup listeners
+  const subscribeToRoom = (roomCode) => {
+    if (channel) {
+      channel.unsubscribe();
+    }
+
+    channel = supabase.channel(`room:${roomCode}`, {
+      config: {
+        broadcast: { self: true } // receive own broadcasts to update state
+      }
+    });
+
+    channel
+      .on('broadcast', { event: 'state-change' }, ({ payload }) => {
+        // Sync states except identity details to other players unless revealed
+        state.gameState = payload.gameState;
+        state.speakingState = payload.speakingState;
+        state.currentRound = payload.currentRound;
+        state.leaderId = payload.leaderId;
+        state.failedProposals = payload.failedProposals;
+        state.proposedTeam = payload.proposedTeam;
+        state.votes = payload.votes;
+        state.questVotes = payload.questVotes;
+        state.questHistory = payload.questHistory;
+        state.questTeamsHistory = payload.questTeamsHistory || [];
+        state.roundVotesHistory = payload.roundVotesHistory || {};
+        state.gamePhase = payload.gamePhase;
+        state.winner = payload.winner;
+        state.assassinatedPlayerId = payload.assassinatedPlayerId;
+        
+        // Sync players list safely
+        state.players = payload.players;
+      })
+      .on('broadcast', { event: 'player-joined' }, ({ payload }) => {
+        if (isHost.value) {
+          const exists = state.players.some(p => p.id === payload.id);
+          if (!exists) {
+            state.players.push(payload);
+            broadcastState();
+          }
+        }
+      })
+      .on('broadcast', { event: 'player-left' }, ({ payload }) => {
+        if (isHost.value) {
+          state.players = state.players.filter(p => p.id !== payload.id);
+          broadcastState();
+        }
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          if (!isHost.value) {
+            channel.send({
+              type: 'broadcast',
+              event: 'player-joined',
+              payload: {
+                id: state.myPlayerId,
+                name: state.myPlayerName,
+                isHost: false,
+                isBot: false,
+                role: '',
+                roleName: '',
+                alignment: ''
+              }
+            });
+          }
+        }
+      });
   };
 
   // Create room
   const createRoom = (playerName) => {
     if (!playerName.trim()) return { success: false, message: '請輸入暱稱' };
     
-    const code = generateRoomCode();
-    const myId = 'player-1';
-    
-    state.roomCode = code;
-    state.myPlayerId = myId;
+    const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    state.roomCode = roomCode;
     state.myPlayerName = playerName;
     state.gameState = 'waiting';
     state.players = [
       {
-        id: myId,
+        id: state.myPlayerId,
         name: playerName,
         isHost: true,
         isBot: false,
         role: '',
-        alignment: '',
+        roleName: '',
+        alignment: ''
       }
     ];
 
+    subscribeToRoom(roomCode);
+    
     // Auto-add 4 bots to quickly satisfy the 5-player minimum for convenience
     addBot();
     addBot();
     addBot();
     addBot();
+
+    setTimeout(() => {
+      broadcastState();
+    }, 500);
 
     return { success: true };
   };
@@ -115,46 +194,22 @@ export function useGame() {
     if (!code.trim() || code.length !== 6) return { success: false, message: '請輸入 6 位數房間代碼' };
     if (!playerName.trim()) return { success: false, message: '請輸入暱稱' };
 
-    const myId = 'player-1';
     state.roomCode = code.toUpperCase();
-    state.myPlayerId = myId;
     state.myPlayerName = playerName;
     state.gameState = 'waiting';
+    state.players = [];
 
-    // Mock other players already in the room
-    const hostName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
-    state.players = [
-      {
-        id: 'player-host',
-        name: `${hostName} (房長)`,
-        isHost: true,
-        isBot: true,
-        role: '',
-        alignment: '',
-      },
-      {
-        id: myId,
-        name: playerName,
-        isHost: false,
-        isBot: false,
-        role: '',
-        alignment: '',
-      }
-    ];
-
-    // Add 3 more bots to make it 5 players
-    while (state.players.length < 5) {
-      addBot();
-    }
+    subscribeToRoom(state.roomCode);
 
     return { success: true };
   };
 
   // Add a Bot player
   const addBot = () => {
+    if (!isHost.value) return { success: false, message: '只有房長能新增 Bot' };
     if (state.players.length >= 10) return { success: false, message: '房間已滿 (上限 10 人)' };
 
-    // Find unused bot names
+    const BOT_NAMES = ['蘭斯洛特 (Bot)', '加拉哈德 (Bot)', '高文 (Bot)', '崔斯坦 (Bot)', '珀西瓦里 (Bot)', '凱 (Bot)', '貝德維爾 (Bot)', '鮑斯 (Bot)', '傑拉恩特 (Bot)'];
     const currentNames = state.players.map(p => p.name);
     const availableNames = BOT_NAMES.filter(name => !currentNames.includes(name));
     
@@ -172,66 +227,54 @@ export function useGame() {
       alignment: '',
     });
 
+    broadcastState();
     return { success: true };
   };
 
   // Remove a player (either Bot or host kick)
   const removePlayer = (playerId) => {
     if (playerId === state.myPlayerId) {
-      // Leave room
       leaveRoom();
       return;
     }
-    state.players = state.players.filter(p => p.id !== playerId);
+    if (isHost.value) {
+      state.players = state.players.filter(p => p.id !== playerId);
+      broadcastState();
+    }
   };
-
-
 
   // Start the game and allocate roles
   const startGame = () => {
+    if (!isHost.value) return { success: false };
     const numPlayers = state.players.length;
     if (numPlayers < 5 || numPlayers > 10) {
       return { success: false, message: '人數必須在 5 到 10 人之間才能開始遊戲' };
     }
 
-    // Role count rules
-    let goodCount = 3;
-    let evilCount = 2;
-    if (numPlayers === 6) { goodCount = 4; evilCount = 2; }
-    else if (numPlayers === 7) { goodCount = 4; evilCount = 3; }
-    else if (numPlayers === 8) { goodCount = 5; evilCount = 3; }
-    else if (numPlayers === 9) { goodCount = 6; evilCount = 3; }
-    else if (numPlayers === 10) { goodCount = 6; evilCount = 4; }
-
-    // Roles definition
-    // Good: Merlin (梅林), Loyalist (亞瑟的忠臣)
-    // Evil: Assassin (刺客), Minion (莫德雷德的爪牙)
+    const config = ROLE_CONFIGS[numPlayers];
     const goodRoles = [{ role: 'Merlin', name: '梅林', alignment: 'good' }];
-    for (let i = 0; i < goodCount - 1; i++) {
+    for (let i = 0; i < config.good - 1; i++) {
       goodRoles.push({ role: 'Loyalist', name: '亞瑟的忠臣', alignment: 'good' });
     }
 
     const evilRoles = [{ role: 'Assassin', name: '刺客', alignment: 'evil' }];
-    for (let i = 0; i < evilCount - 1; i++) {
+    for (let i = 0; i < config.evil - 1; i++) {
       evilRoles.push({ role: 'Minion', name: '莫德雷德的爪牙', alignment: 'evil' });
     }
 
     const pool = [...goodRoles, ...evilRoles];
-
-    // Shuffle pool
+    // Shuffle
     for (let i = pool.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [pool[i], pool[j]] = [pool[j], pool[i]];
     }
 
-    // Assign roles to players
     state.players.forEach((player, idx) => {
       player.role = pool[idx].role;
       player.roleName = pool[idx].name;
       player.alignment = pool[idx].alignment;
     });
 
-    // Reset game progression states
     state.currentRound = 1;
     state.failedProposals = 0;
     state.proposedTeam = [];
@@ -244,15 +287,174 @@ export function useGame() {
     state.assassinatedPlayerId = '';
     state.gamePhase = 'proposal';
     
-    // Choose first leader randomly
     const leaderIndex = Math.floor(Math.random() * state.players.length);
     state.leaderId = state.players[leaderIndex].id;
-
     state.gameState = 'playing';
+
+    broadcastState();
     return { success: true };
   };
 
-  // Reset back to waiting room
+  const proposeTeam = (teamIds) => {
+    if (teamIds.length !== currentRoundQuestSize.value) return { success: false };
+    
+    state.proposedTeam = [...teamIds];
+    const leader = state.players.find(p => p.id === state.leaderId) || state.players[0];
+    const otherPlayers = state.players.filter(p => p.id !== leader.id);
+    const order = [leader.id, ...otherPlayers.map(p => p.id)];
+
+    state.speakingState = {
+      active: true,
+      teamIds: order,
+      currentIndex: 0,
+      direction: null,
+      timeLeft: 60,
+      isMuted: false
+    };
+    state.gamePhase = 'discussion';
+
+    broadcastState();
+    return { success: true };
+  };
+
+  const setSpeakingDirection = (direction) => {
+    state.speakingState.direction = direction;
+    state.speakingState.timeLeft = 60;
+
+    const firstSpeakerId = state.speakingState.teamIds[0];
+    const roomPlayerIds = state.players.map(p => p.id);
+    const firstSpeakerIndex = roomPlayerIds.indexOf(firstSpeakerId);
+
+    let sorted = [];
+    if (direction === 'cw') {
+      for (let i = 0; i < roomPlayerIds.length; i++) {
+        sorted.push(roomPlayerIds[(firstSpeakerIndex + i) % roomPlayerIds.length]);
+      }
+    } else {
+      for (let i = 0; i < roomPlayerIds.length; i++) {
+        sorted.push(roomPlayerIds[(firstSpeakerIndex - i + roomPlayerIds.length) % roomPlayerIds.length]);
+      }
+    }
+    state.speakingState.teamIds = sorted;
+    state.speakingState.currentIndex = 0;
+
+    broadcastState();
+  };
+
+  const passSpeaking = () => {
+    if (state.speakingState.currentIndex < state.speakingState.teamIds.length - 1) {
+      state.speakingState.currentIndex++;
+      state.speakingState.timeLeft = 60;
+    } else {
+      state.speakingState.active = false;
+      state.gamePhase = 'voting';
+      state.votes = {};
+    }
+    broadcastState();
+  };
+
+  const tickSpeakingTimer = () => {
+    if (!isHost.value || !state.speakingState.active || state.speakingState.direction === null) return;
+
+    if (state.speakingState.timeLeft > 0) {
+      state.speakingState.timeLeft--;
+    } else {
+      if (state.speakingState.currentIndex < state.speakingState.teamIds.length - 1) {
+        state.speakingState.currentIndex++;
+        state.speakingState.timeLeft = 60;
+      } else {
+        state.speakingState.active = false;
+        state.gamePhase = 'voting';
+        state.votes = {};
+      }
+    }
+    broadcastState();
+  };
+
+  const submitTeamVote = (playerId, vote) => {
+    state.votes[playerId] = vote;
+
+    if (Object.keys(state.votes).length === state.players.length) {
+      state.roundVotesHistory[state.currentRound] = { ...state.votes };
+
+      const approves = Object.values(state.votes).filter(v => v === 'approve').length;
+      const rejects = state.players.length - approves;
+
+      if (approves > rejects) {
+        state.gamePhase = 'quest';
+        state.questVotes = [];
+      } else {
+        state.failedProposals++;
+        if (state.failedProposals >= 5) {
+          state.questHistory.push('fail');
+          state.questTeamsHistory.push([...state.proposedTeam]);
+          checkGameCompletion();
+        } else {
+          const currentLeaderIdx = state.players.findIndex(p => p.id === state.leaderId);
+          state.leaderId = state.players[(currentLeaderIdx + 1) % state.players.length].id;
+          state.gamePhase = 'proposal';
+          state.proposedTeam = [];
+        }
+      }
+    }
+    broadcastState();
+  };
+
+  const submitQuestVote = (vote) => {
+    state.questVotes.push(vote);
+
+    if (state.questVotes.length === state.proposedTeam.length) {
+      const failsCount = state.questVotes.filter(v => v === 'fail').length;
+      const isRound4 = state.currentRound === 4;
+      const requiresTwoFails = isRound4 && state.players.length >= 7;
+      const roundFailed = requiresTwoFails ? failsCount >= 2 : failsCount >= 1;
+
+      state.questTeamsHistory.push([...state.proposedTeam]);
+
+      if (roundFailed) {
+        state.questHistory.push('fail');
+      } else {
+        state.questHistory.push('success');
+      }
+
+      checkGameCompletion();
+    }
+    broadcastState();
+  };
+
+  const assassinatePlayer = (targetPlayerId) => {
+    state.assassinatedPlayerId = targetPlayerId;
+    const target = state.players.find(p => p.id === targetPlayerId);
+
+    if (target && target.role === 'Merlin') {
+      state.winner = 'evil';
+    } else {
+      state.winner = 'good';
+    }
+    state.gamePhase = 'gameover';
+
+    broadcastState();
+  };
+
+  const checkGameCompletion = () => {
+    const successCount = state.questHistory.filter(h => h === 'success').length;
+    const failCount = state.questHistory.filter(h => h === 'fail').length;
+
+    if (failCount >= 3) {
+      state.winner = 'evil';
+      state.gamePhase = 'gameover';
+    } else if (successCount >= 3) {
+      state.gamePhase = 'assassination';
+    } else {
+      state.currentRound++;
+      state.failedProposals = 0;
+      state.proposedTeam = [];
+      const currentLeaderIdx = state.players.findIndex(p => p.id === state.leaderId);
+      state.leaderId = state.players[(currentLeaderIdx + 1) % state.players.length].id;
+      state.gamePhase = 'proposal';
+    }
+  };
+
   const resetGame = () => {
     state.players.forEach(p => {
       p.role = '';
@@ -262,217 +464,31 @@ export function useGame() {
     state.gameState = 'waiting';
     state.questTeamsHistory = [];
     state.roundVotesHistory = {};
-    endSpeakingPhase();
+    state.speakingState.active = false;
+    broadcastState();
   };
- 
-  // Leave room
+
   const leaveRoom = () => {
+    if (channel) {
+      channel.send({
+        type: 'broadcast',
+        event: 'player-left',
+        payload: { id: state.myPlayerId }
+      });
+      channel.unsubscribe();
+      channel = null;
+    }
     state.roomCode = '';
-    state.myPlayerId = '';
-    state.myPlayerName = '';
     state.players = [];
     state.gameState = 'lobby';
     state.questTeamsHistory = [];
     state.roundVotesHistory = {};
-    endSpeakingPhase();
   };
 
-  // Start speaking phase (all players participate, starting with leader/host)
-  const startSpeakingPhase = () => {
-    const currentLeader = state.players.find(p => p.id === state.leaderId) || state.players[0];
-    if (!currentLeader) return;
-    
-    // Put leader first, followed by others in normal room order
-    const otherPlayers = state.players.filter(p => p.id !== currentLeader.id);
-    const initialSpeechOrder = [currentLeader.id, ...otherPlayers.map(p => p.id)];
-    
-    state.speakingState.active = true;
-    state.speakingState.teamIds = initialSpeechOrder;
-    state.speakingState.currentIndex = 0;
-    state.speakingState.direction = null;
-    state.speakingState.timeLeft = 60;
-    state.speakingState.isMuted = false;
-    state.gamePhase = 'discussion';
-  };
-
-  // Set direction and begin speaking phase for all players
-  const setSpeakingDirection = (direction) => {
-    state.speakingState.direction = direction;
-    state.speakingState.timeLeft = 60;
-    
-    if (state.players.length <= 1) return;
-
-    // Get the first speaker (who made the decision, usually leader)
-    const firstSpeakerId = state.speakingState.teamIds[0];
-    const roomPlayerIds = state.players.map(p => p.id);
-    const firstSpeakerRoomIndex = roomPlayerIds.indexOf(firstSpeakerId);
-    
-    let sortedPlayerIds = [];
-    if (direction === 'cw') {
-      // Clockwise order starting from firstSpeaker
-      for (let i = 0; i < roomPlayerIds.length; i++) {
-        const idx = (firstSpeakerRoomIndex + i) % roomPlayerIds.length;
-        sortedPlayerIds.push(roomPlayerIds[idx]);
-      }
-    } else {
-      // Counter-clockwise order starting from firstSpeaker
-      for (let i = 0; i < roomPlayerIds.length; i++) {
-        const idx = (firstSpeakerRoomIndex - i + roomPlayerIds.length) % roomPlayerIds.length;
-        sortedPlayerIds.push(roomPlayerIds[idx]);
-      }
-    }
-    state.speakingState.teamIds = sortedPlayerIds;
-    state.speakingState.currentIndex = 0;
-  };
-
-  // Pass speaking to next player
-  const passSpeaking = () => {
-    if (state.speakingState.currentIndex < state.speakingState.teamIds.length - 1) {
-      state.speakingState.currentIndex++;
-      state.speakingState.timeLeft = 60;
-    } else {
-      // All players spoken, close discussion phase and move to voting phase
-      endSpeakingPhase();
-      state.gamePhase = 'voting';
-      state.votes = {};
-    }
-  };
-
-  // Toggle my mute status
   const toggleMute = () => {
     state.speakingState.isMuted = !state.speakingState.isMuted;
   };
 
-  // End speaking phase
-  const endSpeakingPhase = () => {
-    state.speakingState.active = false;
-    state.speakingState.teamIds = [];
-    state.speakingState.currentIndex = 0;
-    state.speakingState.direction = null;
-    state.speakingState.timeLeft = 60;
-  };
-
-  // Tick timer
-  const tickSpeakingTimer = () => {
-    if (!state.speakingState.active || state.speakingState.direction === null) return;
-    if (state.speakingState.timeLeft > 0) {
-      state.speakingState.timeLeft--;
-    } else {
-      passSpeaking();
-    }
-  };
-
-  // Actions for Proposal Phase
-  const proposeTeam = (teamIds) => {
-    if (teamIds.length !== currentRoundQuestSize.value) return { success: false, message: '指派人數不符合規定' };
-    state.proposedTeam = [...teamIds];
-    startSpeakingPhase(); // Automatically move to speaking phase
-    return { success: true };
-  };
-
-  // Actions for Proposal Voting Phase
-  const submitTeamVote = (playerId, vote) => {
-    state.votes[playerId] = vote;
-    
-    // Check if everyone voted
-    if (Object.keys(state.votes).length === state.players.length) {
-      // Record proposal votes for this round (save a snapshot)
-      state.roundVotesHistory[state.currentRound] = { ...state.votes };
-
-      // Process votes
-      const approves = Object.values(state.votes).filter(v => v === 'approve').length;
-      const rejects = state.players.length - approves;
-      
-      if (approves > rejects) {
-        // Team proposal approved! Transition to secret quest voting
-        state.gamePhase = 'quest';
-        state.questVotes = [];
-      } else {
-        // Proposal rejected! Move leader to next player, increment failed count
-        state.failedProposals++;
-        
-        if (state.failedProposals >= 5) {
-          // 5th fail means Evil automatically wins this round
-          state.questHistory.push('fail');
-          state.questTeamsHistory.push([...state.proposedTeam]); // Record the last proposed team that was forced/failed
-          checkGameCompletion();
-        } else {
-          // Pass leader to next player clockwise
-          const currentLeaderIndex = state.players.findIndex(p => p.id === state.leaderId);
-          const nextLeaderIndex = (currentLeaderIndex + 1) % state.players.length;
-          state.leaderId = state.players[nextLeaderIndex].id;
-          state.gamePhase = 'proposal';
-          state.proposedTeam = [];
-        }
-      }
-    }
-  };
-
-  // Actions for Quest Execution Phase
-  const submitQuestVote = (vote) => {
-    state.questVotes.push(vote);
-    
-    // If all mission members voted
-    if (state.questVotes.length === state.proposedTeam.length) {
-      const failsCount = state.questVotes.filter(v => v === 'fail').length;
-      const isTwoFailsRequired = isRound4TwoFailsRequired.value;
-      const roundFailed = isTwoFailsRequired ? failsCount >= 2 : failsCount >= 1;
-      
-      state.questTeamsHistory.push([...state.proposedTeam]); // Record the actual quest proposal team members
-      
-      if (roundFailed) {
-        state.questHistory.push('fail');
-      } else {
-        state.questHistory.push('success');
-      }
-      
-      checkGameCompletion();
-    }
-  };
-
-  const checkGameCompletion = () => {
-    const successCount = state.questHistory.filter(h => h === 'success').length;
-    const failCount = state.questHistory.filter(h => h === 'fail').length;
-    
-    if (failCount >= 3) {
-      // Evil wins!
-      state.winner = 'evil';
-      state.gamePhase = 'gameover';
-    } else if (successCount >= 3) {
-      // Good wins 3 quests, transition to Assassin target choice phase
-      state.gamePhase = 'assassination';
-    } else {
-      // Next round setup
-      state.currentRound++;
-      state.failedProposals = 0;
-      state.proposedTeam = [];
-      // Pass leader to next player clockwise
-      const currentLeaderIndex = state.players.findIndex(p => p.id === state.leaderId);
-      const nextLeaderIndex = (currentLeaderIndex + 1) % state.players.length;
-      state.leaderId = state.players[nextLeaderIndex].id;
-      state.gamePhase = 'proposal';
-    }
-  };
-
-  // Assassin kill action
-  const assassinatePlayer = (targetPlayerId) => {
-    state.assassinatedPlayerId = targetPlayerId;
-    const targetPlayer = state.players.find(p => p.id === targetPlayerId);
-    
-    if (targetPlayer && targetPlayer.role === 'Merlin') {
-      // Successfully assassinated Merlin! Evil wins!
-      state.winner = 'evil';
-    } else {
-      // Failed to assassinate Merlin! Good wins!
-      state.winner = 'good';
-    }
-    state.gamePhase = 'gameover';
-  };
-
-  // Get info revealed to a specific player
-  // Merlin: Sees all evil players (but doesn't know who is Assassin vs Minion)
-  // Evil: Sees all other evil players
-  // Loyalist: Sees nothing
   const getRevealedInfoForPlayer = (player) => {
     if (!player) return { evilPlayers: [], teammates: [] };
 
@@ -522,11 +538,9 @@ export function useGame() {
     startGame,
     resetGame,
     getRevealedInfoForPlayer,
-    startSpeakingPhase,
     setSpeakingDirection,
     passSpeaking,
     toggleMute,
-    endSpeakingPhase,
     tickSpeakingTimer,
     proposeTeam,
     submitTeamVote,
