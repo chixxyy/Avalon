@@ -111,7 +111,7 @@
           <div
             v-for="p in state.players"
             :key="p.id"
-            @click="testPerspectiveId = p.id"
+            @click="switchPerspective(p.id)"
             class="flex items-center justify-between p-3 rounded-xl border transition-all duration-300 cursor-pointer relative overflow-hidden"
             :class="[
               state.speakingState.active && state.speakingState.teamIds[state.speakingState.currentIndex] === p.id
@@ -176,10 +176,16 @@
           </div>
         </div>
 
-        <div class="mt-4 p-3 bg-amber-500/5 border border-amber-500/10 rounded-lg text-[11px] text-slate-400 leading-relaxed">
-          <p class="font-serif font-semibold text-amber-500 mb-1">🔮 單機開發除錯面板</p>
-          <p>點擊上方任一玩家，即可在右側**切換成該玩家的身分視角**，方便驗證各陣營投票與刺殺決策！</p>
-          <div class="mt-2 text-glow-gold text-[10px] text-amber-500/80 font-mono">
+        <div 
+          class="mt-4 p-3 rounded-lg text-[11px] leading-relaxed transition-all"
+          :class="hasOtherRealPlayers ? 'bg-red-500/5 border border-red-500/20 text-red-300' : 'bg-amber-500/5 border border-amber-500/10 text-slate-400'"
+        >
+          <p class="font-serif font-semibold mb-1" :class="hasOtherRealPlayers ? 'text-red-400' : 'text-amber-500'">
+            {{ hasOtherRealPlayers ? '🔒 除錯面板已鎖定 (防作弊)' : '🔮 單機開發除錯面板' }}
+          </p>
+          <p v-if="hasOtherRealPlayers">偵測到目前有其他真實玩家加入房間。為了維護遊戲的公平性，已限制無法切換至其他玩家的視角！</p>
+          <p v-else>點擊上方任一玩家，即可在右側**切換成該玩家的身分視角**，方便驗證各陣營投票與刺殺決策！</p>
+          <div class="mt-2 text-[10px] font-mono" :class="hasOtherRealPlayers ? 'text-red-400' : 'text-glow-gold text-amber-500/80'">
             當前視角：{{ activeTestPlayer?.name }}
           </div>
         </div>
@@ -862,6 +868,20 @@ const {
 const testPerspectiveId = ref(state.myPlayerId);
 const isRevealed = ref(false);
 const selectedRoundInfo = ref(1); // Default to view Round 1
+
+// Check if there are other real human players in the room
+const hasOtherRealPlayers = computed(() => {
+  return state.players.some(p => !p.isBot && p.id !== state.myPlayerId);
+});
+
+// Method to switch perspective safely
+const switchPerspective = (playerId) => {
+  if (hasOtherRealPlayers.value && playerId !== state.myPlayerId) {
+    alert('偵測到已有其他真實玩家加入房間！為維護對局公平性，除錯面板已鎖定，無法偷看其他玩家的身分信箋。');
+    return;
+  }
+  testPerspectiveId.value = playerId;
+};
 
 // Local voice system config / mock details
 const localProposedIds = ref([]);
