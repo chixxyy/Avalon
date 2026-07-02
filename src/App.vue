@@ -33,7 +33,7 @@
 
     <!-- Footer -->
     <footer class="w-full max-w-4xl text-center border-t border-slate-800/40 pt-4 text-slate-600 text-xs relative z-10 space-y-1">
-      <p>阿瓦隆桌遊線上版 • 前端連線邏輯模擬測試器</p>
+      <p>阿瓦隆桌遊線上版</p>
       <p class="text-[10px] text-slate-700">Powered by Vue 3 + Tailwind CSS v4</p>
     </footer>
   </div>

@@ -4,14 +4,35 @@
     <div class="absolute -top-16 -right-16 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl"></div>
     <div class="absolute -bottom-16 -left-16 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl"></div>
 
-    <div class="text-center mb-8 relative z-10">
+    <div class="text-center mb-6 relative z-10">
+      <!-- Animated Campfire SVG Banner -->
+      <div class="w-24 h-24 mx-auto mb-4 flex items-center justify-center relative">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" class="w-full h-full drop-shadow-[0_0_15px_rgba(245,158,11,0.4)]">
+          <!-- Logs -->
+          <path d="M25,80 L75,80 M20,85 L80,85" stroke="#4A3B32" stroke-width="6" stroke-linecap="round"/>
+          <path d="M30,75 L70,85 M70,75 L30,85" stroke="#5C4033" stroke-width="5" stroke-linecap="round"/>
+          
+          <!-- Outer Flame (Slow float) -->
+          <path class="flame-outer" d="M50,15 C65,35 75,55 70,72 C65,85 35,85 30,72 C25,55 35,35 50,15 Z" fill="#FF4500" opacity="0.8"/>
+          <!-- Middle Flame (Medium float) -->
+          <path class="flame-middle" d="M50,25 C60,40 68,57 65,72 C60,82 40,82 35,72 C32,57 40,40 50,25 Z" fill="#FF8C00"/>
+          <!-- Inner Flame (Fast float) -->
+          <path class="flame-inner" d="M50,38 C56,50 62,62 60,72 C58,80 42,80 40,72 C38,62 44,50 50,38 Z" fill="#FFD700"/>
+
+          <!-- Sparks -->
+          <circle class="spark spark-1" cx="50" cy="10" r="2.5" fill="#FFE4B5"/>
+          <circle class="spark spark-2" cx="68" cy="28" r="2" fill="#FFA500"/>
+          <circle class="spark spark-3" cx="32" cy="35" r="2" fill="#FF4500"/>
+        </svg>
+      </div>
+
       <h1 class="font-serif text-4xl font-extrabold tracking-widest text-amber-500 text-glow-gold uppercase">
         Avalon
       </h1>
       <p class="font-serif text-xs text-amber-500/60 uppercase tracking-widest mt-1">
-        聖杯傳奇 • 線上連線版
+        聖杯傳訊 • 線上連線版
       </p>
-      <div class="h-[1px] w-24 bg-gradient-to-r from-transparent via-amber-500/50 to-transparent mx-auto mt-4"></div>
+      <div class="h-[1px] w-24 bg-gradient-to-r from-transparent via-amber-500/30 to-transparent mx-auto mt-4"></div>
     </div>
 
     <!-- Error Toast -->
@@ -151,3 +172,68 @@ const handleJoin = () => {
   }
 };
 </script>
+
+<style scoped>
+/* Campfire SVG Flame and Spark Animations */
+.flame-outer {
+  animation: flameMoveOuter 2.8s ease-in-out infinite alternate;
+  transform-origin: 50px 80px;
+}
+.flame-middle {
+  animation: flameMoveMiddle 2s ease-in-out infinite alternate;
+  transform-origin: 50px 80px;
+}
+.flame-inner {
+  animation: flameMoveInner 1.4s ease-in-out infinite alternate;
+  transform-origin: 50px 80px;
+}
+
+@keyframes flameMoveOuter {
+  0% { transform: scale(1) rotate(-1deg); }
+  50% { transform: scale(1.04, 0.96) rotate(1.5deg); }
+  100% { transform: scale(0.96, 1.03) rotate(-2deg); }
+}
+
+@keyframes flameMoveMiddle {
+  0% { transform: scale(1) rotate(2deg); }
+  50% { transform: scale(0.96, 1.05) rotate(-1.5deg); }
+  100% { transform: scale(1.05, 0.95) rotate(2.5deg); }
+}
+
+@keyframes flameMoveInner {
+  0% { transform: scale(1) rotate(-2.5deg); }
+  50% { transform: scale(1.08, 0.93) rotate(2deg); }
+  100% { transform: scale(0.93, 1.06) rotate(-3deg); }
+}
+
+.spark {
+  animation: sparkRise 3.5s linear infinite;
+  transform-origin: center;
+}
+.spark-1 {
+  animation-duration: 2.2s;
+  animation-delay: 0.2s;
+}
+.spark-2 {
+  animation-duration: 2.8s;
+  animation-delay: 0.8s;
+}
+.spark-3 {
+  animation-duration: 1.9s;
+  animation-delay: 1.4s;
+}
+
+@keyframes sparkRise {
+  0% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(-50px) scale(0.3);
+    opacity: 0;
+  }
+}
+</style>
