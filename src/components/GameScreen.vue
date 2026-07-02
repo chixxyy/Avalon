@@ -194,14 +194,40 @@
       <!-- Quick Reset Card -->
       <div class="glass-panel rounded-2xl p-5 border border-slate-800/80 shadow-md flex flex-col justify-between">
         <p class="text-xs text-slate-500 mb-4 leading-relaxed">
-          房長可以隨時點擊下方按鈕，結束本局並返回等待大廳。
+          房長可以隨時結束本局並返回等待大廳（重新分配角色）。
         </p>
+
+        <!-- Step 1: Initial button -->
         <button
-          @click="handleReset"
-          class="w-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 font-serif text-xs py-2 px-4 rounded-lg transition-colors cursor-pointer"
+          v-if="!showResetConfirm"
+          @click="showResetConfirm = true"
+          :disabled="!isHost"
+          class="w-full bg-slate-900 hover:bg-red-950/40 disabled:opacity-40 disabled:cursor-not-allowed border border-slate-800 hover:border-red-500/40 text-slate-300 hover:text-red-300 font-serif text-xs py-2.5 px-4 rounded-lg transition-all cursor-pointer"
         >
-          返回等待大廳 (重新發牌)
+          🚪 返回等待大廳
         </button>
+
+        <!-- Step 2: Confirmation panel -->
+        <div v-else class="space-y-3">
+          <div class="p-3 bg-red-950/30 border border-red-500/30 rounded-lg text-center">
+            <p class="text-red-300 text-xs font-semibold font-serif">⚠️ 確定要結束本局嗎？</p>
+            <p class="text-slate-500 text-[10px] mt-1">所有玩家的角色將被清除，遊戲進度無法恢復。</p>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <button
+              @click="showResetConfirm = false"
+              class="py-2 px-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 font-serif text-xs rounded-lg transition-colors cursor-pointer"
+            >
+              ← 繼續遊戲
+            </button>
+            <button
+              @click="confirmReset"
+              class="py-2 px-3 bg-red-950/60 hover:bg-red-900/60 border border-red-500/50 text-red-300 font-serif text-xs font-bold rounded-lg transition-colors cursor-pointer"
+            >
+              確定返回 🚪
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -267,13 +293,21 @@
             >
               確定出征隊伍並啟動全員發言討論 ({{ localProposedIds.length }} / {{ currentRoundQuestSize }}人)
             </button>
+
+            <!-- Auto countdown hint for self (leader) -->
+            <div v-if="isPerspectiveLeader && proposalCountdown > 0" class="text-center text-[10px] mt-1">
+              <span :class="proposalCountdown <= 5 ? 'text-red-400 animate-pulse' : 'text-slate-500'">
+                ⏰ 若 {{ proposalCountdown }} 秒內未送出，將自動選擇身邊玩家出征
+              </span>
+            </div>
             
             <div v-else-if="state.players.find(p => p.id === state.leaderId)?.isBot" class="text-[10px] text-slate-500 italic mt-2 animate-pulse">
               🤖 Bot 領袖正在研擬指派名單... (將在 {{ botProposalTimer }} 秒後自動宣佈)
             </div>
             
-            <div v-else class="text-[10px] text-amber-500/70 italic mt-2">
-              💡 當前除錯視角切換至領袖 {{ getPlayerNameById(state.leaderId) }} 即可指派隊伍並前進！
+            <div v-else class="text-[10px] text-slate-500 italic mt-2 flex items-center gap-2">
+              <span>⏳ 等待領袖選擇出征隊伍...</span>
+              <span v-if="proposalCountdown > 0" :class="proposalCountdown <= 5 ? 'text-red-400 animate-pulse font-bold' : 'text-amber-500/80'">{{ proposalCountdown }}s</span>
             </div>
           </div>
         </div>
@@ -887,11 +921,13 @@ const switchPerspective = (playerId) => {
 const localProposedIds = ref([]);
 const botDecisionTimer = ref(3);
 const botProposalTimer = ref(4);
+const proposalCountdown = ref(0); // 人類領袖指派倒數計時
 const waveformBars = ref(Array.from({ length: 30 }, () => 15));
 
 let timerInterval = null;
 let animFrame = null;
 let botTimeout = null;
+let proposalCountdownInterval = null;
 
 const viewRoundHistory = (round) => {
   selectedRoundInfo.value = round;
@@ -921,18 +957,23 @@ const revealedInfo = computed(() => {
 watch(() => state.currentRound, () => {
   localProposedIds.value = [];
   triggerBotProposalDecision();
+  startProposalCountdown();
 });
 
 watch(() => state.gamePhase, (newPhase) => {
   if (newPhase === 'proposal') {
     localProposedIds.value = [];
     triggerBotProposalDecision();
-  } else if (newPhase === 'voting') {
-    triggerBotProposalVoting();
-  } else if (newPhase === 'quest') {
-    triggerBotQuestVoting();
-  } else if (newPhase === 'assassination') {
-    triggerBotAssassinationChoice();
+    startProposalCountdown();
+  } else {
+    clearProposalCountdown();
+    if (newPhase === 'voting') {
+      triggerBotProposalVoting();
+    } else if (newPhase === 'quest') {
+      triggerBotQuestVoting();
+    } else if (newPhase === 'assassination') {
+      triggerBotAssassinationChoice();
+    }
   }
 });
 
@@ -966,6 +1007,7 @@ onUnmounted(() => {
   if (timerInterval) clearInterval(timerInterval);
   if (animFrame) cancelAnimationFrame(animFrame);
   if (botTimeout) clearTimeout(botTimeout);
+  clearProposalCountdown();
   closePeers();
 });
 
@@ -1080,7 +1122,51 @@ const toggleProposedMember = (playerId) => {
 };
 
 const submitProposal = () => {
+  clearProposalCountdown();
   proposeTeam(localProposedIds.value);
+};
+
+// Auto-propose countdown for human leader (15 seconds)
+const clearProposalCountdown = () => {
+  if (proposalCountdownInterval) {
+    clearInterval(proposalCountdownInterval);
+    proposalCountdownInterval = null;
+  }
+  proposalCountdown.value = 0;
+};
+
+const startProposalCountdown = () => {
+  clearProposalCountdown();
+  const leader = state.players.find(p => p.id === state.leaderId);
+  // Only start countdown for real (non-bot) human leaders
+  if (!leader || leader.isBot) return;
+  // Only the actual human leader's device handles the auto-submit
+  if (state.leaderId !== state.myPlayerId) return;
+
+  proposalCountdown.value = 15;
+  proposalCountdownInterval = setInterval(() => {
+    if (state.gamePhase !== 'proposal') {
+      clearProposalCountdown();
+      return;
+    }
+    if (proposalCountdown.value > 1) {
+      proposalCountdown.value--;
+    } else {
+      clearProposalCountdown();
+      // Auto-select: include self + fill with random others
+      const questSize = currentRoundQuestSize.value;
+      const myId = state.myPlayerId;
+      const others = state.players.filter(p => p.id !== myId);
+      // Shuffle others
+      for (let i = others.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [others[i], others[j]] = [others[j], others[i]];
+      }
+      const autoChosen = [myId, ...others.slice(0, questSize - 1).map(p => p.id)];
+      localProposedIds.value = autoChosen;
+      proposeTeam(autoChosen);
+    }
+  }, 1000);
 };
 
 const voteProposal = (playerId, vote) => {
@@ -1280,7 +1366,10 @@ const getWinnerExplanationText = () => {
   }
 };
 
-const handleReset = () => {
+const showResetConfirm = ref(false);
+
+const confirmReset = () => {
+  showResetConfirm.value = false;
   resetGame();
 };
 </script>
