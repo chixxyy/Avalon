@@ -244,9 +244,18 @@
           <h3 class="font-serif text-sm font-semibold uppercase tracking-wider text-amber-500 flex items-center gap-2">
             ⚔️ 圓桌會議現場
           </h3>
-          <span class="px-2.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/25">
-            {{ getPhaseTitleText(state.gamePhase) }}
-          </span>
+          <div class="flex items-center gap-2">
+            <!-- If we are in active speaking (discussion phase and direction chosen), display speaking timeLeft. Otherwise display actionTimeLeft -->
+            <span v-if="state.gamePhase === 'discussion' && state.speakingState.direction !== null" class="text-xs font-mono font-bold px-1.5 py-0.5 rounded bg-red-950/40 border border-red-500/30 text-red-400">
+              ⏱️ {{ state.speakingState.timeLeft }}s
+            </span>
+            <span v-else-if="state.actionTimeLeft > 0" class="text-xs font-mono font-bold px-1.5 py-0.5 rounded bg-red-950/40 border border-red-500/30 text-red-400">
+              ⏱️ {{ state.actionTimeLeft }}s
+            </span>
+            <span class="px-2.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/25">
+              {{ getPhaseTitleText(state.gamePhase) }}
+            </span>
+          </div>
         </div>
 
         <!-- 1. Proposal Phase (隊伍指派階段) -->
@@ -457,18 +466,27 @@
 
         <!-- 3. Team Proposal Voting Phase (公開隊伍投票表決階段) -->
         <div v-else-if="state.gamePhase === 'voting'" class="space-y-4 py-2">
-          <div class="p-4 bg-slate-950/60 border border-slate-900 rounded-xl">
-            <h4 class="font-serif text-slate-200 text-sm font-semibold flex items-center gap-2 mb-2">
-              🗳️ 公開表決隊伍是否出征？
-            </h4>
-            <p class="text-xs text-slate-400 leading-relaxed mb-3">
-              提議的出征隊伍為：
-              <span class="flex flex-wrap gap-1 mt-1.5">
-                <span v-for="id in state.proposedTeam" :key="'vote-team-'+id" class="px-2 py-0.5 bg-blue-900/30 border border-blue-500/30 text-blue-300 text-xs font-semibold rounded-lg">
-                  🛡️ {{ getPlayerNameById(id) }}
+          <div class="p-4 bg-slate-950/60 border border-slate-900 rounded-xl flex justify-between items-center">
+            <div>
+              <h4 class="font-serif text-slate-200 text-sm font-semibold flex items-center gap-2 mb-2">
+                🗳️ 公開表決隊伍是否出征？
+              </h4>
+              <p class="text-xs text-slate-400 leading-relaxed">
+                提議的出征隊伍為：
+                <span class="flex flex-wrap gap-1 mt-1.5">
+                  <span v-for="id in state.proposedTeam" :key="'vote-team-'+id" class="px-2 py-0.5 bg-blue-900/30 border border-blue-500/30 text-blue-300 text-xs font-semibold rounded-lg">
+                    🛡️ {{ getPlayerNameById(id) }}
+                  </span>
                 </span>
-              </span>
-            </p>
+              </p>
+            </div>
+            <!-- Voting Countdown -->
+            <div class="text-right shrink-0 ml-4">
+              <p class="text-[9px] text-slate-500 uppercase font-semibold">投票剩餘</p>
+              <p class="font-serif text-xl font-bold font-mono text-glow-gold" :class="state.actionTimeLeft <= 5 ? 'text-red-500 animate-pulse' : 'text-amber-500'">
+                {{ state.actionTimeLeft }}s
+              </p>
+            </div>
           </div>
 
           <!-- Show individual vote statuses -->
@@ -524,17 +542,26 @@
 
         <!-- 4. Quest Execution Phase (任務秘密投票階段) -->
         <div v-else-if="state.gamePhase === 'quest'" class="space-y-4 py-2">
-          <div class="p-4 bg-slate-950/60 border border-slate-900 rounded-xl space-y-2">
-            <h4 class="font-serif text-slate-200 text-sm font-semibold flex items-center gap-2">
-              ✨ 任務秘密執行中
-            </h4>
-            <p class="text-xs text-slate-400 leading-relaxed">
-              投票已被批准！出征成員已出發前往尋找聖杯。
-              請秘密投下「任務成功」或「任務失敗」票。
-            </p>
-            <div class="text-[10px] text-amber-500/80 mt-1 leading-relaxed bg-amber-500/5 p-2 rounded border border-amber-500/10">
-              * 提示：好人玩家出征只能投票「成功」；邪惡玩家出征可以任意投票「成功」或「失敗」。
+          <div class="p-4 bg-slate-950/60 border border-slate-900 rounded-xl flex justify-between items-center gap-4">
+            <div class="space-y-1">
+              <h4 class="font-serif text-slate-200 text-sm font-semibold flex items-center gap-2">
+                ✨ 任務秘密執行中
+              </h4>
+              <p class="text-xs text-slate-400 leading-relaxed">
+                投票已被批准！出征成員已出發前往尋找聖杯。
+                請秘密投下「任務成功」或「任務失敗」票。
+              </p>
             </div>
+            <!-- Quest Countdown -->
+            <div class="text-right shrink-0">
+              <p class="text-[9px] text-slate-500 uppercase font-semibold">執行剩餘</p>
+              <p class="font-serif text-xl font-bold font-mono text-glow-gold" :class="state.actionTimeLeft <= 5 ? 'text-red-500 animate-pulse' : 'text-amber-500'">
+                {{ state.actionTimeLeft }}s
+              </p>
+            </div>
+          </div>
+          <div class="text-[10px] text-amber-500/80 leading-relaxed bg-amber-500/5 p-2 rounded border border-amber-500/10">
+            * 提示：好人玩家出征只能投票「成功」；邪惡玩家出征可以任意投票「成功」或「失敗」。
           </div>
 
           <!-- Secret Vote count progress -->
@@ -600,14 +627,23 @@
 
         <!-- 5. Assassination Phase (刺客指認梅林階段) -->
         <div v-else-if="state.gamePhase === 'assassination'" class="space-y-4 py-2">
-          <div class="p-4 bg-red-950/20 border border-red-500/30 rounded-xl space-y-1.5">
-            <h4 class="font-serif text-red-400 text-sm font-semibold flex items-center gap-2">
-              🔥 邪惡的最後反撲：刺客刺殺梅林
-            </h4>
-            <p class="text-xs text-slate-300 leading-relaxed">
-              好人陣營已成功完成了 3 次任務！但邪惡勢力仍有最後一次機會。
-              刺客必須指認出圓桌會議中誰是「梅林」。
-            </p>
+          <div class="p-4 bg-red-950/20 border border-red-500/30 rounded-xl flex justify-between items-center gap-4">
+            <div class="space-y-1.5">
+              <h4 class="font-serif text-red-400 text-sm font-semibold flex items-center gap-2">
+                🔥 邪惡的最後反撲：刺客刺殺梅林
+              </h4>
+              <p class="text-xs text-slate-300 leading-relaxed">
+                好人陣營已成功完成了 3 次任務！但邪惡勢力仍有最後一次機會。
+                刺客必須指認出圓桌會議中誰是「梅林」。
+              </p>
+            </div>
+            <!-- Assassination Countdown -->
+            <div class="text-right shrink-0">
+              <p class="text-[9px] text-slate-500 uppercase font-semibold">刺殺剩餘</p>
+              <p class="font-serif text-xl font-bold font-mono text-glow-red" :class="state.actionTimeLeft <= 10 ? 'text-red-500 animate-pulse text-glow-red' : 'text-red-400'">
+                {{ state.actionTimeLeft }}s
+              </p>
+            </div>
           </div>
 
           <div class="bg-slate-950/40 p-4 border border-slate-900 rounded-xl space-y-3">

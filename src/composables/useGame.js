@@ -31,7 +31,8 @@ const state = reactive({
   gamePhase: 'proposal', 
   winner: null,         
   assassinatedPlayerId: '', 
-  proposalTimeLeft: 0,
+  proposalTimeLeft: 0,   // kept for compat, now aliased as actionTimeLeft
+  actionTimeLeft: 0,    // shared countdown for current phase
 });
 
 let channel = null;
@@ -115,7 +116,8 @@ export function useGame() {
         state.gamePhase = payload.gamePhase;
         state.winner = payload.winner;
         state.assassinatedPlayerId = payload.assassinatedPlayerId;
-        state.proposalTimeLeft = payload.proposalTimeLeft ?? 0;
+        state.actionTimeLeft = payload.actionTimeLeft ?? payload.proposalTimeLeft ?? 0;
+        state.proposalTimeLeft = state.actionTimeLeft; // alias
         
         // Sync players list safely
         state.players = payload.players;
@@ -317,8 +319,96 @@ export function useGame() {
     state.leaderId = state.players[leaderIndex].id;
     state.gameState = 'playing';
 
-    broadcastState();
+    resetActionTimer('proposal');
     return { success: true };
+  };
+
+  // ─── Unified per-phase action countdown ──────────────────────────────────
+  const PHASE_TIMEOUTS = {
+    proposal:     20,
+    discussion:   20,  // speaking direction choice
+    voting:       30,
+    quest:        30,
+    assassination: 60,
+    gameover:      0,
+  };
+
+  // Reset timer at phase start — only host calls this
+  const resetActionTimer = (phase) => {
+    if (!isHost.value) return;
+    const secs = PHASE_TIMEOUTS[phase] ?? 0;
+    state.actionTimeLeft = secs;
+    state.proposalTimeLeft = secs; // alias
+    broadcastState();
+  };
+
+  // Called by host's setInterval every second
+  const tickActionTimer = () => {
+    if (!isHost.value) return;
+
+    // 如果在討論階段且已經選定方向（開始輪流發言），改由 tickSpeakingTimer 驅動
+    if (state.gamePhase === 'discussion' && state.speakingState.direction !== null) {
+      return;
+    }
+
+    if (state.actionTimeLeft <= 0) return;
+    state.actionTimeLeft--;
+    state.proposalTimeLeft = state.actionTimeLeft; // alias
+    broadcastState();
+
+    if (state.actionTimeLeft === 0) {
+      handlePhaseTimeout(state.gamePhase);
+    }
+  };
+
+  // Auto-action when timer expires — host only
+  const handlePhaseTimeout = (phase) => {
+    if (!isHost.value) return;
+
+    if (phase === 'proposal') {
+      // Auto-propose: leader + random others
+      const questSize = currentRoundQuestSize.value;
+      const leader = state.players.find(p => p.id === state.leaderId);
+      if (!leader || leader.isBot) return; // bots handle themselves
+      const others = state.players.filter(p => p.id !== state.leaderId);
+      for (let i = others.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [others[i], others[j]] = [others[j], others[i]];
+      }
+      const autoTeam = [state.leaderId, ...others.slice(0, questSize - 1).map(p => p.id)];
+      proposeTeam(autoTeam);
+
+    } else if (phase === 'discussion') {
+      // Auto-choose random speaking direction
+      const dir = Math.random() < 0.5 ? 'cw' : 'ccw';
+      setSpeakingDirection(dir);
+
+    } else if (phase === 'voting') {
+      // Auto-approve for all players who haven't voted yet
+      state.players.forEach(p => {
+        if (!state.votes[p.id]) {
+          submitTeamVote(p.id, 'approve');
+        }
+      });
+
+    } else if (phase === 'quest') {
+      // Auto-fill missing quest votes with 'pass'
+      const needed = state.proposedTeam.length - state.questVotes.length;
+      for (let i = 0; i < needed; i++) {
+        submitQuestVote('pass');
+      }
+
+    } else if (phase === 'assassination') {
+      // Auto-assassinate: pick a random good player
+      const goodPlayers = state.players.filter(p => p.alignment === 'good' && p.role !== 'Merlin');
+      const merlin = state.players.find(p => p.role === 'Merlin');
+      // 30% chance to pick Merlin (slightly favor evil to make timeout not too advantageous)
+      const pool = merlin ? [...goodPlayers, merlin] : goodPlayers;
+      if (pool.length > 0) {
+        const target = pool[Math.floor(Math.random() * pool.length)];
+        assassinatePlayer(target.id);
+      }
+    }
   };
 
   const proposeTeam = (teamIds) => {
@@ -340,6 +430,7 @@ export function useGame() {
     state.gamePhase = 'discussion';
 
     broadcastState();
+    resetActionTimer('discussion');
     return { success: true };
   };
 
@@ -365,6 +456,7 @@ export function useGame() {
     state.speakingState.currentIndex = 0;
 
     broadcastState();
+    resetActionTimer('voting'); // speaking direction chosen → move to discussion+voting flow
   };
 
   const passSpeaking = () => {
@@ -398,18 +490,10 @@ export function useGame() {
   };
 
   // Proposal phase countdown — called by host's setInterval every second
-  const tickProposalTimer = () => {
-    if (!isHost.value || state.gamePhase !== 'proposal') return;
-    if (state.proposalTimeLeft > 0) {
-      state.proposalTimeLeft--;
-      broadcastState();
-    }
-  };
-
-  const resetProposalTimer = () => {
-    state.proposalTimeLeft = 15;
-    broadcastState();
-  };
+  // Remove old proposal-only timer functions (now handled by tickActionTimer/resetActionTimer)
+  // kept for backward compat shim
+  const tickProposalTimer = () => tickActionTimer();
+  const resetProposalTimer = () => resetActionTimer(state.gamePhase);
 
   const submitTeamVote = (playerId, vote) => {
     state.votes[playerId] = vote;
@@ -423,6 +507,7 @@ export function useGame() {
       if (approves > rejects) {
         state.gamePhase = 'quest';
         state.questVotes = [];
+        resetActionTimer('quest');
       } else {
         state.failedProposals++;
         if (state.failedProposals >= 5) {
@@ -434,8 +519,12 @@ export function useGame() {
           state.leaderId = state.players[(currentLeaderIdx + 1) % state.players.length].id;
           state.gamePhase = 'proposal';
           state.proposedTeam = [];
+          resetActionTimer('proposal');
         }
       }
+    } else {
+      // 重置當前投票階段的秒數，避免有人投票時秒數快用完導致其他人來不及投
+      resetActionTimer('voting');
     }
     broadcastState();
   };
@@ -458,6 +547,9 @@ export function useGame() {
       }
 
       checkGameCompletion();
+    } else {
+      // 每次有隊員遞交出征秘密卡，就為剩下的隊員重置 30 秒倒數，防斷線/輪候過久卡住
+      resetActionTimer('quest');
     }
     broadcastState();
   };
@@ -485,6 +577,7 @@ export function useGame() {
       state.gamePhase = 'gameover';
     } else if (successCount >= 3) {
       state.gamePhase = 'assassination';
+      resetActionTimer('assassination');
     } else {
       state.currentRound++;
       state.failedProposals = 0;
@@ -492,6 +585,7 @@ export function useGame() {
       const currentLeaderIdx = state.players.findIndex(p => p.id === state.leaderId);
       state.leaderId = state.players[(currentLeaderIdx + 1) % state.players.length].id;
       state.gamePhase = 'proposal';
+      resetActionTimer('proposal');
     }
   };
 
