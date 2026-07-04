@@ -56,6 +56,35 @@
             </div>
           </div>
 
+          <!-- Round Votes History Details -->
+          <div v-if="state.roundVotesHistory && state.roundVotesHistory[selectedRoundInfo]" class="pt-2 border-t border-slate-900 space-y-2">
+            <p class="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">🗳️ 全員公開投票明細：</p>
+            <div class="space-y-1.5 text-[10px]">
+              <!-- Approve voters -->
+              <div class="flex items-start gap-1">
+                <span class="text-emerald-400 font-bold shrink-0">👍 同意：</span>
+                <span class="text-slate-300 flex flex-wrap gap-1">
+                  <template v-for="p in state.players" :key="'approve-'+selectedRoundInfo+'-'+p.id">
+                    <span v-if="state.roundVotesHistory[selectedRoundInfo][p.id] === 'approve'" class="px-1.5 py-0.5 bg-emerald-950/40 border border-emerald-900/30 rounded text-[9px]">
+                      {{ p.name }}
+                    </span>
+                  </template>
+                </span>
+              </div>
+              <!-- Reject voters -->
+              <div class="flex items-start gap-1">
+                <span class="text-red-400 font-bold shrink-0">👎 反對：</span>
+                <span class="text-slate-300 flex flex-wrap gap-1">
+                  <template v-for="p in state.players" :key="'reject-'+selectedRoundInfo+'-'+p.id">
+                    <span v-if="state.roundVotesHistory[selectedRoundInfo][p.id] === 'reject'" class="px-1.5 py-0.5 bg-red-950/40 border border-red-900/30 rounded text-[9px]">
+                      {{ p.name }}
+                    </span>
+                  </template>
+                </span>
+              </div>
+            </div>
+          </div>
+
           <div class="pt-2 border-t border-slate-900 flex justify-between items-center text-[10px]">
             <span class="text-slate-500">出征結果：</span>
             <span class="font-serif font-bold" :class="state.questHistory[selectedRoundInfo-1] === 'success' ? 'text-blue-400' : 'text-red-400'">
