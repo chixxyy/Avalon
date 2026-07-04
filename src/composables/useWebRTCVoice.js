@@ -41,6 +41,16 @@ export function useWebRTCVoice(roomCode, myPlayerId) {
     }
   };
 
+  const setMicEnabled = (enabled) => {
+    if (localStream.value) {
+      localStream.value.getAudioTracks().forEach(track => {
+        // Only enable track if not manually muted
+        track.enabled = enabled ? !isMuted.value : false;
+      });
+      console.log('[WebRTC] Dynamic Mic Enabled:', enabled && !isMuted.value);
+    }
+  };
+
   const createPeerConnection = (targetPlayerId) => {
     if (peers[targetPlayerId]) return peers[targetPlayerId];
 
@@ -253,6 +263,7 @@ export function useWebRTCVoice(roomCode, myPlayerId) {
     isMuted,
     initLocalStream,
     toggleLocalMute,
+    setMicEnabled,
     startVoiceConference,
     closePeers
   };

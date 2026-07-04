@@ -934,6 +934,7 @@ const {
   startVoiceConference,
   closePeers,
   toggleLocalMute,
+  setMicEnabled,
   isMuted
 } = useWebRTCVoice(state.roomCode, state.myPlayerId);
 
@@ -1085,10 +1086,9 @@ const isMutedOrBotSilent = computed(() => {
   return currentSpeaker.value.isBot ? false : isMuted.value;
 });
 
-// Watch for changes in active status to trigger Bot decisions
-watch(() => state.speakingState.active, (active) => {
-  if (active) {
-    triggerBotFirstSpeakerDecision();
+watch(() => state.speakingState.direction, (dir) => {
+  if (dir !== null) {
+    triggerBotSpeechSimulation();
   }
 });
 
@@ -1097,9 +1097,44 @@ watch(() => state.speakingState.currentIndex, () => {
   triggerBotSpeechSimulation();
 });
 
-watch(() => state.speakingState.direction, (dir) => {
-  if (dir !== null) {
-    triggerBotSpeechSimulation();
+// Watch current speaker to physically enforce "single active speaker" mic control
+watch(() => currentSpeaker.value?.id, (newSpeakerId) => {
+  if (state.speakingState.active && state.speakingState.direction !== null) {
+    // 1. 討論發言階段：只有輪到自己時才開啟
+    const isMyTurn = (newSpeakerId === state.myPlayerId);
+    setMicEnabled(isMyTurn);
+  } else if (state.gamePhase === 'assassination') {
+    // 2. 刺殺梅林階段：所有壞人 (evil) 可以同時開啟麥克風討論，好人 (good) 強制靜音
+    const myPlayer = state.players.find(p => p.id === state.myPlayerId);
+    const isEvil = myPlayer && myPlayer.alignment === 'evil';
+    setMicEnabled(isEvil);
+  } else {
+    // 3. 其他階段：一律物理靜音
+    setMicEnabled(false);
+  }
+}, { immediate: true });
+
+// Also fallback watch active state to handle transition out of speech phase
+watch(() => state.speakingState.active, (active) => {
+  if (!active) {
+    if (state.gamePhase === 'assassination') {
+      const myPlayer = state.players.find(p => p.id === state.myPlayerId);
+      const isEvil = myPlayer && myPlayer.alignment === 'evil';
+      setMicEnabled(isEvil);
+    } else {
+      setMicEnabled(false);
+    }
+  } else {
+    triggerBotFirstSpeakerDecision();
+  }
+});
+
+// Watch game phase transitions directly to handle assassination entry properly
+watch(() => state.gamePhase, (newPhase) => {
+  if (newPhase === 'assassination') {
+    const myPlayer = state.players.find(p => p.id === state.myPlayerId);
+    const isEvil = myPlayer && myPlayer.alignment === 'evil';
+    setMicEnabled(isEvil);
   }
 });
 
