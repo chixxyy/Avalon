@@ -1075,9 +1075,6 @@ watch(() => state.proposalTimeLeft, (val) => {
 });
 
 onMounted(() => {
-  // Start WebRTC voice conference
-  startVoiceConference();
-
   // Timer setup — one interval drives both speaking timer and proposal timer
   timerInterval = setInterval(() => {
     if (state.speakingState.active && state.speakingState.direction !== null) {

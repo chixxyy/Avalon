@@ -4,6 +4,7 @@ import { supabase } from '../supabase';
 const peers = {}; // playerId -> RTCPeerConnection
 const remoteStreams = reactive({}); // playerId -> MediaStream
 const activeSpeakers = reactive({}); // playerId -> boolean (speaking state)
+const connectionStates = reactive({}); // playerId -> string (connection state)
 const iceQueue = {}; // playerId -> RTCIceCandidate[] (buffered until remote desc is set)
 const localStream = ref(null);
 const isMuted = ref(false);
@@ -102,6 +103,7 @@ export function useWebRTCVoice(roomCode, myPlayerId) {
 
     pc.onconnectionstatechange = () => {
       console.log(`[WebRTC] Connection to ${targetPlayerId}:`, pc.connectionState);
+      connectionStates[targetPlayerId] = pc.connectionState;
     };
 
     return pc;
@@ -267,6 +269,7 @@ export function useWebRTCVoice(roomCode, myPlayerId) {
       delete remoteStreams[id];
       delete iceQueue[id];
       delete activeSpeakers[id];
+      delete connectionStates[id];
     });
     delete activeSpeakers[myPlayerId];
     if (localStream.value) {
@@ -279,6 +282,7 @@ export function useWebRTCVoice(roomCode, myPlayerId) {
   return {
     remoteStreams,
     activeSpeakers,
+    connectionStates,
     localStream,
     isMuted,
     initLocalStream,

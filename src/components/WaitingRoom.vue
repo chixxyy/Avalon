@@ -97,6 +97,23 @@
                 </span>
                 <span v-if="player.id === state.myPlayerId" class="text-[9px] bg-amber-500/20 text-amber-400 px-1 rounded">我</span>
                 <span v-if="player.isBot" class="text-[9px] bg-slate-800 text-slate-500 px-1 rounded border border-slate-700">BOT</span>
+                <span v-else-if="player.id === state.myPlayerId" class="text-[9px] px-1 rounded border flex items-center gap-1" :class="[
+                  localStream
+                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                    : 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                ]">
+                  {{ localStream ? '🟢 連線穩定' : '🟡 連線中...' }}
+                  <button v-if="!localStream" @click="retryMic" class="ml-1 bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 rounded px-1 transition-colors cursor-pointer" title="重新取得麥克風權限">
+                    重試
+                  </button>
+                </span>
+                <span v-else class="text-[9px] px-1 rounded border" :class="[
+                  connectionStates[player.id] === 'connected' || connectionStates[player.id] === 'completed'
+                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                    : 'bg-red-500/20 text-red-400 border-red-500/40 animate-pulse'
+                ]">
+                  {{ connectionStates[player.id] === 'connected' || connectionStates[player.id] === 'completed' ? '🟢 連線穩定' : '🔴 連線中...' }}
+                </span>
               </div>
               <p class="text-[10px] text-slate-500">{{ player.isHost ? '👑 圓桌房長' : '🛡️ 圓桌騎士' }}</p>
             </div>
@@ -122,7 +139,7 @@
     <!-- Actions Footer -->
     <div class="flex items-center justify-between gap-4 border-t border-slate-800/80 pt-6">
       <button
-        @click="leaveRoom"
+        @click="leaveRoomAndClosePeers"
         class="bg-transparent border border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700 font-serif text-sm px-6 py-2.5 rounded-lg transition-colors cursor-pointer"
       >
         離開房間
@@ -131,10 +148,10 @@
       <button
         v-if="isHost"
         @click="handleStartGame"
-        :disabled="state.players.length < 5"
+        :disabled="state.players.length < 5 || !allPlayersConnected"
         class="bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-600 text-slate-950 font-serif font-bold text-sm px-8 py-2.5 rounded-lg transition-all duration-300 shadow-lg cursor-pointer"
       >
-        發牌 / 開始遊戲
+        {{ !allPlayersConnected ? '等待玩家連線...' : '發牌 / 開始遊戲' }}
       </button>
       <div v-else class="text-xs text-slate-500 italic">
         等待房長 {{ state.players.find(p => p.isHost)?.name }} 開始遊戲...
@@ -144,10 +161,35 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useGame } from '../composables/useGame';
+import { useWebRTCVoice } from '../composables/useWebRTCVoice';
 
 const { state, isHost, addBot, removePlayer, leaveRoom, startGame } = useGame();
+const { connectionStates, startVoiceConference, closePeers, localStream } = useWebRTCVoice(state.roomCode, state.myPlayerId);
+
+const retryMic = async () => {
+  await startVoiceConference();
+  if (!localStream.value) {
+    actionError.value = "無法取得麥克風權限！若您曾點選「不允許」，請點擊瀏覽器網址列左側的 🔒 鎖頭圖示，將麥克風設為「允許」後再重試或重新整理網頁。";
+  } else {
+    actionError.value = "";
+  }
+};
+
+onMounted(() => {
+  startVoiceConference();
+});
+
+const leaveRoomAndClosePeers = () => {
+  closePeers();
+  leaveRoom();
+};
+
+const allPlayersConnected = computed(() => {
+  const realPlayers = state.players.filter(p => !p.isBot && p.id !== state.myPlayerId);
+  return realPlayers.every(p => connectionStates[p.id] === 'connected' || connectionStates[p.id] === 'completed');
+});
 
 const copied = ref(false);
 const actionError = ref('');
