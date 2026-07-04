@@ -1,7 +1,7 @@
 <template>
   <div class="max-w-4xl w-full grid grid-cols-1 lg:grid-cols-3 gap-6">
     <!-- Left column: Players List & Game Round status -->
-    <div class="lg:col-span-1 space-y-6">
+    <div class="lg:col-span-1 flex flex-col gap-6 h-full">
       
       <!-- Quest Progress Board -->
       <div class="glass-panel rounded-2xl p-5 border border-slate-800/80 shadow-xl space-y-4">
@@ -168,7 +168,13 @@
                 {{ p.name.substring(0, 1) }}
               </div>
               <div class="flex flex-col">
-                <span class="text-xs font-semibold" :class="state.speakingState.active && state.speakingState.teamIds[state.speakingState.currentIndex] === p.id ? 'text-amber-300 text-glow-gold' : 'text-slate-200'">
+                <span class="text-xs font-semibold" :class="[
+                  state.speakingState.active && state.speakingState.teamIds[state.speakingState.currentIndex] === p.id 
+                    ? 'text-amber-300 text-glow-gold' 
+                    : activeSpeakers[p.id] 
+                      ? 'text-emerald-400 font-bold' 
+                      : 'text-slate-200'
+                ]">
                   {{ p.name }}
                 </span>
                 <span class="text-[9px] text-slate-500 mt-0.5">
@@ -193,6 +199,11 @@
               <span v-if="state.speakingState.active && state.speakingState.teamIds[state.speakingState.currentIndex] === p.id" 
                     class="text-[9px] bg-gradient-to-r from-amber-600 to-amber-500 text-slate-950 font-bold px-2 py-0.5 rounded-md flex items-center gap-0.5 animate-bounce whitespace-nowrap">
                 🎙️ 發言
+              </span>
+              <!-- Active Speaking Voice Broadcast Badge -->
+              <span v-else-if="activeSpeakers[p.id]"
+                    class="text-[9px] bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 font-bold px-2 py-0.5 rounded-md flex items-center gap-0.5 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.3)] whitespace-nowrap">
+                🔊 通話中
               </span>
               <span v-else-if="state.speakingState.active && state.speakingState.teamIds.includes(p.id)"
                     class="text-[9px] bg-slate-900 border border-slate-800 text-slate-500 px-1.5 py-0.5 rounded-md whitespace-nowrap">
@@ -221,7 +232,7 @@
       </div>
 
       <!-- Quick Reset Card -->
-      <div class="glass-panel rounded-2xl p-5 border border-slate-800/80 shadow-md flex flex-col justify-between">
+      <div class="glass-panel rounded-2xl p-5 border border-slate-800/80 shadow-md flex flex-col justify-between mt-auto">
         <p class="text-xs text-slate-500 mb-4 leading-relaxed">
           房長可以隨時結束本局並返回等待大廳（重新分配角色）。
         </p>
@@ -261,7 +272,7 @@
     </div>
 
     <!-- Right column: Stage Controller Panels -->
-    <div class="lg:col-span-2 space-y-6">
+    <div class="lg:col-span-2 flex flex-col gap-6 h-full">
       
       <!-- MAIN GAME STAGE PANEL -->
       <div class="glass-panel rounded-2xl p-6 border border-amber-500/20 shadow-2xl relative overflow-hidden">
@@ -761,7 +772,7 @@
       </div>
 
       <!-- Identity reveal panel (信箋) -->
-      <div class="glass-panel rounded-2xl p-8 border border-amber-500/20 shadow-2xl relative overflow-hidden">
+      <div class="glass-panel rounded-2xl p-8 border border-amber-500/20 shadow-2xl relative overflow-hidden mt-auto">
         <!-- Medieval Corner Ornaments -->
         <div class="absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 border-amber-500/20"></div>
         <div class="absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 border-amber-500/20"></div>
@@ -960,6 +971,7 @@ const {
 
 const {
   remoteStreams,
+  activeSpeakers,
   startVoiceConference,
   closePeers,
   toggleLocalMute,
@@ -1137,8 +1149,11 @@ watch(() => currentSpeaker.value?.id, (newSpeakerId) => {
     const myPlayer = state.players.find(p => p.id === state.myPlayerId);
     const isEvil = myPlayer && myPlayer.alignment === 'evil';
     setMicEnabled(isEvil);
+  } else if (state.gamePhase === 'gameover') {
+    // 3. 遊戲結束階段：所有人都可以自由對話語音討論
+    setMicEnabled(true);
   } else {
-    // 3. 其他階段：一律物理靜音
+    // 4. 其他階段：一律物理靜音
     setMicEnabled(false);
   }
 }, { immediate: true });
@@ -1150,6 +1165,8 @@ watch(() => state.speakingState.active, (active) => {
       const myPlayer = state.players.find(p => p.id === state.myPlayerId);
       const isEvil = myPlayer && myPlayer.alignment === 'evil';
       setMicEnabled(isEvil);
+    } else if (state.gamePhase === 'gameover') {
+      setMicEnabled(true);
     } else {
       setMicEnabled(false);
     }
@@ -1158,12 +1175,14 @@ watch(() => state.speakingState.active, (active) => {
   }
 });
 
-// Watch game phase transitions directly to handle assassination entry properly
+// Watch game phase transitions directly to handle assassination and gameover entry properly
 watch(() => state.gamePhase, (newPhase) => {
   if (newPhase === 'assassination') {
     const myPlayer = state.players.find(p => p.id === state.myPlayerId);
     const isEvil = myPlayer && myPlayer.alignment === 'evil';
     setMicEnabled(isEvil);
+  } else if (newPhase === 'gameover') {
+    setMicEnabled(true);
   }
 });
 

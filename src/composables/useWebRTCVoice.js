@@ -3,6 +3,7 @@ import { supabase } from '../supabase';
 
 const peers = {}; // playerId -> RTCPeerConnection
 const remoteStreams = reactive({}); // playerId -> MediaStream
+const activeSpeakers = reactive({}); // playerId -> boolean (speaking state)
 const iceQueue = {}; // playerId -> RTCIceCandidate[] (buffered until remote desc is set)
 const localStream = ref(null);
 const isMuted = ref(false);
@@ -48,6 +49,17 @@ export function useWebRTCVoice(roomCode, myPlayerId) {
         track.enabled = enabled ? !isMuted.value : false;
       });
       console.log('[WebRTC] Dynamic Mic Enabled:', enabled && !isMuted.value);
+      
+      // Update local state and broadcast
+      const currentlySpeaking = enabled && !isMuted.value;
+      activeSpeakers[myPlayerId] = currentlySpeaking;
+      if (channel) {
+        channel.send({
+          type: 'broadcast',
+          event: 'webrtc-speaking-state',
+          payload: { from: myPlayerId, isSpeaking: currentlySpeaking }
+        });
+      }
     }
   };
 
@@ -222,6 +234,11 @@ export function useWebRTCVoice(roomCode, myPlayerId) {
           await handleIceCandidate(payload.candidate, payload.from);
         }
       })
+      .on('broadcast', { event: 'webrtc-speaking-state' }, ({ payload }) => {
+        if (payload.from) {
+          activeSpeakers[payload.from] = payload.isSpeaking;
+        }
+      })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           console.log('[WebRTC] Subscribed to signalling channel, broadcasting hello');
@@ -249,7 +266,9 @@ export function useWebRTCVoice(roomCode, myPlayerId) {
       }
       delete remoteStreams[id];
       delete iceQueue[id];
+      delete activeSpeakers[id];
     });
+    delete activeSpeakers[myPlayerId];
     if (localStream.value) {
       localStream.value.getTracks().forEach(track => track.stop());
       localStream.value = null;
@@ -259,6 +278,7 @@ export function useWebRTCVoice(roomCode, myPlayerId) {
 
   return {
     remoteStreams,
+    activeSpeakers,
     localStream,
     isMuted,
     initLocalStream,
